@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="locadock-token" content="__LOCALDOCK_TOKEN__">
+    <meta name="color-scheme" content="light">
+    <title>LocalDock · 本地站点管家</title>
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/styles.css?v=0.6.1">
+  </head>
+  <body>
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-server" viewBox="0 0 24 24">
+        <rect x="2" y="2" width="20" height="8" rx="2"></rect>
+        <rect x="2" y="14" width="20" height="8" rx="2"></rect>
+        <line x1="6" y1="6" x2="6.01" y2="6"></line>
+        <line x1="6" y1="18" x2="6.01" y2="18"></line>
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path d="M5 12h14"></path>
+        <path d="M12 5v14"></path>
+      </symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24">
+        <polygon points="6 3 20 12 6 21 6 3"></polygon>
+      </symbol>
+      <symbol id="icon-square" viewBox="0 0 24 24">
+        <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+      </symbol>
+      <symbol id="icon-rotate" viewBox="0 0 24 24">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"></path>
+        <path d="M21 3v5h-5"></path>
+      </symbol>
+      <symbol id="icon-external" viewBox="0 0 24 24">
+        <path d="M15 3h6v6"></path>
+        <path d="M10 14 21 3"></path>
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+      </symbol>
+      <symbol id="icon-file" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="8" y1="13" x2="16" y2="13"></line>
+        <line x1="8" y1="17" x2="14" y2="17"></line>
+      </symbol>
+      <symbol id="icon-pencil" viewBox="0 0 24 24">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M3 6h18"></path>
+        <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"></path>
+        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+        <line x1="10" y1="11" x2="10" y2="17"></line>
+        <line x1="14" y1="11" x2="14" y2="17"></line>
+      </symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24">
+        <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path>
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.3-4.3"></path>
+      </symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24">
+        <path d="M20 7h-5V2"></path>
+        <path d="M20 7a9 9 0 1 0 0 10"></path>
+      </symbol>
+      <symbol id="icon-power" viewBox="0 0 24 24">
+        <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+        <line x1="12" y1="2" x2="12" y2="12"></line>
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </symbol>
+      <symbol id="icon-database" viewBox="0 0 24 24">
+        <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+        <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"></path>
+        <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"></path>
+      </symbol>
+      <symbol id="icon-more" viewBox="0 0 24 24">
+        <circle cx="5" cy="12" r="1"></circle>
+        <circle cx="12" cy="12" r="1"></circle>
+        <circle cx="19" cy="12" r="1"></circle>
+      </symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24">
+        <path d="M18 6 6 18"></path>
+        <path d="m6 6 12 12"></path>
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </symbol>
+    </svg>
+
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg class="icon"><use href="#icon-server"></use></svg>
+          </div>
+          <div class="brand-copy">
+            <strong>LocalDock</strong>
+            <span>本地站点管家</span>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="主导航">
+          <button class="nav-item is-active" type="button">
+            <svg class="icon"><use href="#icon-server"></use></svg>
+            <span>站点</span>
+            <span class="nav-count" id="nav-count">0</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+        <div class="manager-card">
+          <div class="manager-row">
+            <span class="online-dot"></span>
+            <strong>管理端在线</strong>
+          </div>
+          <div class="manager-version" id="manager-version">正在连接</div>
+        </div>
+        <button class="sidebar-exit" id="exit-manager" type="button">
+          <svg class="icon"><use href="#icon-power"></use></svg>
+          <span>停止服务并退出</span>
+        </button>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">LOCAL WEB SERVICES</div>
+            <h1>站点控制台</h1>
+          </div>
+          <div class="topbar-actions">
+            <button class="button button-quiet icon-button" id="refresh-all" type="button" title="刷新状态" aria-label="刷新状态">
+              <svg class="icon"><use href="#icon-refresh"></use></svg>
+            </button>
+            <button class="button button-primary" id="add-service" type="button">
+              <svg class="icon"><use href="#icon-plus"></use></svg>
+              <span>新增站点</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="metrics-bar" aria-label="站点概览">
+          <div class="metric">
+            <span class="metric-label">全部站点</span>
+            <strong id="metric-total">0</strong>
+          </div>
+          <div class="metric">
+            <span class="metric-label">运行中</span>
+            <strong class="metric-running" id="metric-running">0</strong>
+          </div>
+          <div class="metric">
+            <span class="metric-label">已停止</span>
+            <strong id="metric-stopped">0</strong>
+          </div>
+          <div class="metric metric-manager">
+            <span class="metric-label">监听地址</span>
+            <span class="manager-address" id="manager-address">127.0.0.1</span>
+          </div>
+        </section>
+
+        <section class="service-panel" aria-label="站点列表">
+          <div class="panel-toolbar">
+            <label class="search-field">
+              <svg class="icon"><use href="#icon-search"></use></svg>
+              <input id="service-search" type="search" placeholder="搜索名称、路径或端口" autocomplete="off">
+            </label>
+            <div class="toolbar-actions">
+              <button class="button button-secondary" id="start-all" type="button">
+                <svg class="icon"><use href="#icon-play"></use></svg>
+                <span>全部启动</span>
+              </button>
+              <button class="button button-secondary" id="stop-all" type="button">
+                <svg class="icon"><use href="#icon-square"></use></svg>
+                <span>全部停止</span>
+              </button>
+              <div class="menu-wrap">
+                <button class="button button-quiet icon-button" id="data-menu-button" type="button" title="数据操作" aria-label="数据操作" aria-expanded="false">
+                  <svg class="icon"><use href="#icon-more"></use></svg>
+                </button>
+                <div class="popover-menu" id="data-menu" hidden>
+                  <button type="button" data-download="/api/export.csv" data-filename="localdock-services.csv">
+                    <svg class="icon"><use href="#icon-download"></use></svg>
+                    <span>导出配置 CSV</span>
+                  </button>
+                  <button type="button" data-download="/api/backup" data-filename="localdock-backup.db">
+                    <svg class="icon"><use href="#icon-database"></use></svg>
+                    <span>备份 SQLite 数据</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="col-status">状态</th>
+                  <th>站点</th>
+                  <th class="col-address">访问地址</th>
+                  <th class="col-port">端口</th>
+                  <th class="col-actions"><span class="sr-only">操作</span></th>
+                </tr>
+              </thead>
+              <tbody id="service-list"></tbody>
+            </table>
+            <div class="empty-state" id="empty-state" hidden>
+              <div class="empty-icon">
+                <svg class="icon"><use href="#icon-server"></use></svg>
+              </div>
+              <strong id="empty-title">还没有站点</strong>
+              <p id="empty-copy">添加一个 HTML 项目目录开始使用。</p>
+              <button class="button button-primary" id="empty-add" type="button">
+                <svg class="icon"><use href="#icon-plus"></use></svg>
+                <span>新增站点</span>
+              </button>
+            </div>
+          </div>
+          <footer class="panel-footer">
+            <span id="list-summary">0 个站点</span>
+            <span class="status-refresh"><span class="online-dot"></span>自动刷新</span>
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="modal" id="service-dialog" closedby="none">
+      <form id="service-form" novalidate>
+        <header class="modal-header">
+          <div>
+            <div class="eyebrow" id="service-dialog-eyebrow">NEW SERVICE</div>
+            <h2 id="service-dialog-title">新增站点</h2>
+          </div>
+          <button class="icon-button modal-close" type="button" data-close-dialog title="关闭" aria-label="关闭">
+            <svg class="icon"><use href="#icon-x"></use></svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <label class="field">
+            <span>站点名称</span>
+            <input id="service-name" name="name" type="text" maxlength="80" placeholder="例如：产品原型" required>
+          </label>
+          <label class="field">
+            <span>项目目录</span>
+            <div class="input-with-action">
+              <input id="service-root" name="root_path" type="text" placeholder="D:\projects\demo" required spellcheck="false">
+              <button class="field-action" id="browse-folder" type="button" title="选择目录" aria-label="选择目录">
+                <svg class="icon"><use href="#icon-folder"></use></svg>
+              </button>
+            </div>
+          </label>
+          <div class="form-grid">
+            <label class="field">
+              <span>入口文件</span>
+              <input id="service-entry" name="entry_file" type="text" placeholder="index.html" value="index.html" required spellcheck="false">
+            </label>
+            <label class="field">
+              <span>本地端口</span>
+              <div class="input-with-action">
+                <input id="service-port" name="port" type="number" min="1024" max="65535" required>
+                <button class="field-action field-action-wide" id="auto-assign-port" type="button" title="自动分配端口" aria-label="自动分配端口">
+                  <svg class="icon"><use href="#icon-refresh"></use></svg>
+                  <span>自动</span>
+                </button>
+              </div>
+              <small class="field-hint" id="port-hint">默认从 7000 起分配，并避开常见服务端口</small>
+            </label>
+          </div>
+          <label class="switch-row">
+            <span>
+              <strong>启动时打开浏览器</strong>
+              <small>手动启动站点时自动进入首页</small>
+            </span>
+            <input id="service-auto-open" name="auto_open" type="checkbox" checked>
+            <span class="switch-control" aria-hidden="true"></span>
+          </label>
+          <label class="switch-row">
+            <span>
+              <strong>启用本地文件操作</strong>
+              <small>允许页面调用默认软件打开文件或定位资源</small>
+            </span>
+            <input id="service-bridge-enabled" name="bridge_enabled" type="checkbox">
+            <span class="switch-control" aria-hidden="true"></span>
+          </label>
+          <label class="field bridge-root-field" id="bridge-root-field" hidden>
+            <span>允许操作目录</span>
+            <div class="input-with-action">
+              <input id="service-bridge-root" name="bridge_root" type="text" placeholder="选择页面允许访问的文件目录" spellcheck="false">
+              <button class="field-action" id="browse-bridge-root" type="button" title="选择允许操作目录" aria-label="选择允许操作目录">
+                <svg class="icon"><use href="#icon-folder"></use></svg>
+              </button>
+            </div>
+            <small class="field-hint">页面只能访问此目录中的文件，留空时仅允许站点目录</small>
+          </label>
+          <label class="switch-row" id="write-switch-row" hidden>
+            <span>
+              <strong>允许删除、移动和写入</strong>
+              <small>删除进入系统回收站，修改文件前会保留备份</small>
+            </span>
+            <input id="service-write-enabled" name="write_enabled" type="checkbox">
+            <span class="switch-control" aria-hidden="true"></span>
+          </label>
+          <label class="switch-row" id="watch-switch-row">
+            <span>
+              <strong>监控文件变化</strong>
+              <small>Windows 下使用系统变更通知，并对事件合并去抖</small>
+            </span>
+            <input id="service-watch-enabled" name="watch_enabled" type="checkbox">
+            <span class="switch-control" aria-hidden="true"></span>
+          </label>
+          <div id="watch-options" hidden>
+            <label class="field">
+              <span>监控目录</span>
+              <div class="input-with-action">
+                <input id="service-watch-root" name="watch_root" type="text" placeholder="留空时使用文件操作目录或站点目录" spellcheck="false">
+                <button class="field-action" id="browse-watch-root" type="button" title="选择监控目录" aria-label="选择监控目录">
+                  <svg class="icon"><use href="#icon-folder"></use></svg>
+                </button>
+              </div>
+              <small class="field-hint">只监听文件变化，不会定期读取文件内容</small>
+            </label>
+            <div class="form-grid">
+              <label class="field">
+                <span>低速轮询间隔</span>
+                <input id="service-watch-interval" name="watch_interval" type="number" min="3" max="60" value="5">
+                <small class="field-hint">Windows 原生通知不可用时使用，单位秒</small>
+              </label>
+              <label class="switch-row watch-auto-reload">
+                <span>
+                  <strong>页面自动刷新</strong>
+                  <small>仅站点自身文件变化时自动重载</small>
+                </span>
+                <input id="service-auto-reload" name="auto_reload" type="checkbox">
+                <span class="switch-control" aria-hidden="true"></span>
+              </label>
+            </div>
+            <label class="field">
+              <span>变化后自动执行命令 ID</span>
+              <input id="service-auto-command" name="auto_command_id" type="text" placeholder="可选，例如 rebuild-index" spellcheck="false">
+              <small class="field-hint">必须与下方“允许的命令配置”中的 id 一致</small>
+            </label>
+          </div>
+          <label class="switch-row" id="command-switch-row">
+            <span>
+              <strong>运行本地命令</strong>
+              <small>只允许调用下方预先登记的命令，默认关闭</small>
+            </span>
+            <input id="service-command-enabled" name="command_enabled" type="checkbox">
+            <span class="switch-control" aria-hidden="true"></span>
+          </label>
+          <label class="field" id="command-options" hidden>
+            <span>允许的命令配置（JSON）</span>
+            <textarea id="service-commands" name="commands_json" class="command-editor" spellcheck="false" placeholder='[{"id":"ffmpeg-convert","label":"视频转码","executable":"ffmpeg","args":["-i","{input}","-y","{output}"],"timeout":3600}]'></textarea>
+            <small class="field-hint">参数使用 {name} 占位符；命令通过 shell=False 直接启动</small>
+          </label>
+          <div class="form-error" id="form-error" role="alert" hidden></div>
+        </div>
+        <footer class="modal-footer">
+          <button class="button button-primary" id="save-service" type="submit">保存站点</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="modal modal-wide" id="logs-dialog">
+      <header class="modal-header">
+        <div>
+          <div class="eyebrow">SERVICE LOG</div>
+          <h2 id="logs-title">运行日志</h2>
+        </div>
+        <button class="icon-button modal-close" type="button" data-close-dialog title="关闭" aria-label="关闭">
+          <svg class="icon"><use href="#icon-x"></use></svg>
+        </button>
+      </header>
+      <div class="modal-body">
+        <div class="log-meta">
+          <code id="logs-path"></code>
+          <button class="button button-quiet button-small" id="copy-logs" type="button">
+            <svg class="icon"><use href="#icon-copy"></use></svg>
+            <span>复制</span>
+          </button>
+        </div>
+        <pre class="log-view" id="log-content">正在读取日志...</pre>
+      </div>
+      <footer class="modal-footer">
+        <button class="button button-secondary" id="refresh-logs" type="button">
+          <svg class="icon"><use href="#icon-refresh"></use></svg>
+          <span>刷新日志</span>
+        </button>
+        <button class="button button-primary" type="button" data-close-dialog>关闭</button>
+      </footer>
+    </dialog>
+
+    <dialog class="modal modal-confirm" id="confirm-dialog">
+      <div class="confirm-body">
+        <div class="confirm-icon" id="confirm-icon">
+          <svg class="icon"><use href="#icon-trash"></use></svg>
+        </div>
+        <h2 id="confirm-title">确认操作</h2>
+        <p id="confirm-message"></p>
+      </div>
+      <footer class="modal-footer">
+        <button class="button button-quiet" id="confirm-cancel" type="button">取消</button>
+        <button class="button button-danger" id="confirm-ok" type="button">确认</button>
+      </footer>
+    </dialog>
+
+    <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+    <div class="shutdown-screen" id="shutdown-screen" hidden>
+      <div class="brand-mark">
+        <svg class="icon"><use href="#icon-power"></use></svg>
+      </div>
+      <strong>LocalDock 已退出</strong>
+      <p>后台服务已经全部停止。</p>
+    </div>
+
+    <script src="/assets/app.js?v=0.6.1"></script>
+  </body>
+</html>

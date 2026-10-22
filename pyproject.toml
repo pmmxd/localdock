@@ -1,0 +1,13 @@
+[project]
+name = "localdock"
+version = "0.1.0"
+description = "Portable local static site manager"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+localdock = "app:main"
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"

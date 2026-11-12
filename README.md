@@ -35,6 +35,7 @@ LocalDock 是一个 Windows 本地静态网站绿色管理工具。管理端和�
   - 支持 PATH 命令、可执行文件、`.cmd`、`.bat` 和 `.ps1` 封装工具。
   - 支持命名占位符参数模板。
   - 支持任务轮询、输出读取、取消、并发限制和超时。
+<img width="3232" height="1908" alt="image" src="https://github.com/user-attachments/assets/70fcbf1a-5e95-49e7-bcbf-e4b710adbad6" />
 
 ## 快速开始
 

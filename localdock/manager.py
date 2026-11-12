@@ -49,6 +49,27 @@ class ApiError(RuntimeError):
         self.message = message
 
 
+PROJECT_SERVICE_DIRS = {
+    "frontend",
+    "backend",
+    "server",
+    "client",
+    "localdock-site",
+    "web",
+    "api",
+    "ui",
+    "dist",
+}
+
+
+def project_root_for_path(value: str) -> Path:
+    path = Path(value)
+    parts = list(path.parts)
+    while len(parts) > 1 and parts[-1].casefold() in PROJECT_SERVICE_DIRS:
+        parts.pop()
+    return Path(*parts)
+
+
 def console_write(message: str) -> None:
     stream = getattr(sys, "stdout", None)
     if stream is None:
@@ -149,7 +170,35 @@ class ManagerApp:
                     self.database, AUTO_SERVICE_PORT_START
                 )
             values = validate_service_payload(service_payload, self.database)
-            return self.database.create_service(values)
+            service = self.database.create_service(values)
+            return self._auto_group_new_service(service)
+
+    def _auto_group_new_service(self, service: dict[str, Any]) -> dict[str, Any]:
+        project_root = project_root_for_path(service["root_path"])
+        related = [
+            item
+            for item in self.database.list_services()
+            if item["id"] != service["id"]
+            and os.path.normcase(str(project_root_for_path(item["root_path"])))
+            == os.path.normcase(str(project_root))
+        ]
+        if not related:
+            return service
+        manual_groups = {
+            str(item.get("group_name") or "").strip()
+            for item in related
+            if str(item.get("group_name") or "").strip()
+        }
+        if len(manual_groups) > 1:
+            return service
+        group_name = next(iter(manual_groups), project_root.name or "自动分组")
+        service_ids = [service["id"]]
+        if not manual_groups:
+            service_ids.extend(
+                item["id"] for item in related if not str(item.get("group_name") or "").strip()
+            )
+        self.database.set_service_group(service_ids, group_name)
+        return self.database.get_service(service["id"]) or service
 
     def update_service(
         self, service_id: str, payload: dict[str, Any]
@@ -167,6 +216,61 @@ class ManagerApp:
         if updated is None:
             raise ApiError(HTTPStatus.NOT_FOUND, "站点不存在。")
         return updated
+
+    def assign_service_group(self, payload: dict[str, Any]) -> dict[str, Any]:
+        raw_ids = payload.get("ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "请选择至少一个站点。")
+        service_ids = list(dict.fromkeys(str(item) for item in raw_ids))
+        if len(service_ids) > 500 or any(
+            re.fullmatch(r"[0-9a-f]{32}", service_id) is None
+            for service_id in service_ids
+        ):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "站点选择无效。")
+        group_name = str(payload.get("group_name") or "").strip()
+        if len(group_name) > 80:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "分组名称不能超过 80 个字符。")
+        services = self.database.list_services()
+        if any(
+            not any(item["id"] == service_id for item in services)
+            for service_id in service_ids
+        ):
+            raise ApiError(HTTPStatus.NOT_FOUND, "一个或多个站点不存在。")
+        existing_groups = {
+            str(item.get("group_name") or "").strip().casefold()
+            for item in services
+            if str(item.get("group_name") or "").strip()
+        }
+        if (
+            group_name
+            and len(service_ids) < 2
+            and group_name.casefold() not in existing_groups
+        ):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "创建分组至少需要选择两个站点。")
+        with self._mutation_lock:
+            updated = self.database.set_service_group(service_ids, group_name)
+        return {"updated": updated, "group_name": group_name}
+
+    def rename_service_group(self, payload: dict[str, Any]) -> dict[str, Any]:
+        old_name = str(payload.get("old_name") or "").strip()
+        new_name = str(payload.get("new_name") or "").strip()
+        if not old_name or not new_name:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "分组名称不能为空。")
+        if len(new_name) > 80:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "分组名称不能超过 80 个字符。")
+        services = self.database.list_services()
+        if not any(
+            str(item.get("group_name") or "").casefold() == old_name.casefold()
+            for item in services
+        ):
+            raise ApiError(HTTPStatus.NOT_FOUND, "分组不存在。")
+        if new_name.casefold() != old_name.casefold() and any(
+            str(item.get("group_name") or "").casefold() == new_name.casefold()
+            for item in services
+        ):
+            raise ApiError(HTTPStatus.CONFLICT, "该分组名称已存在。")
+        updated = self.database.rename_service_group(old_name, new_name)
+        return {"updated": updated, "group_name": new_name}
 
     def delete_service(self, service_id: str) -> None:
         existing = self.database.get_service(service_id)
@@ -247,6 +351,8 @@ class ManagerApp:
                 "name",
                 "root_path",
                 "entry_file",
+                "service_type",
+                "backend_json",
                 "port",
                 "auto_open",
                 "bridge_enabled",
@@ -269,6 +375,8 @@ class ManagerApp:
                     service["name"],
                     service["root_path"],
                     service["entry_file"],
+                    service["service_type"],
+                    service["backend_json"],
                     service["port"],
                     "true" if service["auto_open"] else "false",
                     "true" if service["bridge_enabled"] else "false",
@@ -382,6 +490,14 @@ class ManagerRequestHandler(BaseHTTPRequestHandler):
             service = self.app.create_service(payload)
             self._send_json(HTTPStatus.CREATED, {"ok": True, "service": service})
             return
+        if path == "/api/services/group" and method == "POST":
+            result = self.app.assign_service_group(self._read_json())
+            self._send_json(HTTPStatus.OK, {"ok": True, **result})
+            return
+        if path == "/api/groups/rename" and method == "POST":
+            result = self.app.rename_service_group(self._read_json())
+            self._send_json(HTTPStatus.OK, {"ok": True, **result})
+            return
 
         match = re.fullmatch(r"/api/services/([0-9a-f]+)", path)
         if match:
@@ -471,6 +587,11 @@ class ManagerRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK, {"ok": True, "path": self._choose_folder()}
             )
             return
+        if path == "/api/dialog/file" and method == "POST":
+            self._send_json(
+                HTTPStatus.OK, {"ok": True, "path": self._choose_file()}
+            )
+            return
         if path == "/api/shutdown" and method == "POST":
             self.app.request_shutdown()
             self._send_json(HTTPStatus.OK, {"ok": True})
@@ -514,6 +635,32 @@ class ManagerRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             raise ApiError(
                 HTTPStatus.NOT_IMPLEMENTED, f"无法打开目录选择器：{exc}"
+            ) from exc
+        finally:
+            if root is not None:
+                try:
+                    root.destroy()
+                except Exception:
+                    pass
+
+    def _choose_file(self) -> str:
+        root = None
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            path = filedialog.askopenfilename(
+                parent=root,
+                title="选择外部软件",
+                filetypes=[("Windows 程序", "*.exe *.com"), ("所有文件", "*.*")],
+            )
+            return str(Path(path).resolve()) if path else ""
+        except Exception as exc:
+            raise ApiError(
+                HTTPStatus.NOT_IMPLEMENTED, f"无法打开文件选择器：{exc}"
             ) from exc
         finally:
             if root is not None:

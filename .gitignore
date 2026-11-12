@@ -16,3 +16,5 @@ data/
 .ui-*.png
 .test-*/
 .uitest*/
+.codegraph/
+.release-*/

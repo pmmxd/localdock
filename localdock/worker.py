@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import base64
 import ctypes
+import hashlib
 import hmac
 import json
 import mimetypes
@@ -31,6 +32,17 @@ SHUTDOWN_PATH = "/__localdock/shutdown"
 HEALTH_PATH = "/__localdock/health"
 STATUS_PATHS = {"/api/status", "/__localdock/api/status"}
 OPEN_PATHS = {"/api/open", "/__localdock/api/open"}
+OPEN_WITH_PATHS = {"/api/open-with", "/__localdock/api/open-with"}
+EXPORT_PATHS = {"/api/export", "/__localdock/api/export"}
+EXPORT_FOLDER_PATHS = {
+    "/api/export-to-folder",
+    "/__localdock/api/export-to-folder",
+}
+LIST_PATHS = {"/api/list", "/__localdock/api/list"}
+READ_PATHS = {"/api/read", "/__localdock/api/read"}
+COPY_PATHS = {"/api/copy", "/__localdock/api/copy"}
+PICK_FOLDER_PATHS = {"/api/pick-folder", "/__localdock/api/pick-folder"}
+PICK_FILES_PATHS = {"/api/pick-files", "/__localdock/api/pick-files"}
 REVEAL_PATHS = {"/__localdock/api/reveal"}
 TRASH_PATHS = {"/api/delete", "/__localdock/api/trash"}
 MOVE_PATHS = {"/api/move", "/__localdock/api/move"}
@@ -48,9 +60,14 @@ MAX_BRIDGE_BODY = 16 * 1024
 MAX_WRITE_BODY = 16 * 1024 * 1024
 MAX_WRITE_REQUEST_BODY = 24 * 1024 * 1024
 MAX_COMMAND_OUTPUT = 256 * 1024
+MAX_EXPORT_FILES = 200
 AUTO_COMMAND_COOLDOWN_SECONDS = 30.0
 
 OPENABLE_EXTENSIONS = {
+    ".7z",
+    ".aac",
+    ".ass",
+    ".avi",
     ".azw",
     ".azw3",
     ".cbr",
@@ -60,6 +77,7 @@ OPENABLE_EXTENSIONS = {
     ".doc",
     ".docx",
     ".epub",
+    ".flac",
     ".gif",
     ".htm",
     ".html",
@@ -67,19 +85,70 @@ OPENABLE_EXTENSIONS = {
     ".jpg",
     ".json",
     ".log",
+    ".m2ts",
+    ".m4a",
+    ".m4v",
     ".md",
+    ".mkv",
     ".mobi",
+    ".mov",
     ".mp3",
     ".mp4",
+    ".nfo",
+    ".ogg",
+    ".opus",
     ".pdf",
     ".png",
     ".ppt",
     ".pptx",
+    ".rar",
     ".rtf",
+    ".srt",
+    ".tar",
+    ".ts",
     ".txt",
+    ".vtt",
+    ".wav",
     ".webp",
+    ".webm",
+    ".wmv",
     ".xls",
     ".xlsx",
+    ".zip",
+}
+
+BLOCKED_OPEN_WITH_EXTENSIONS = {
+    ".appref-ms",
+    ".application",
+    ".bat",
+    ".chm",
+    ".cmd",
+    ".com",
+    ".dll",
+    ".exe",
+    ".hta",
+    ".jar",
+    ".job",
+    ".js",
+    ".jse",
+    ".lnk",
+    ".msi",
+    ".pif",
+    ".ps1",
+    ".py",
+    ".pyw",
+    ".reg",
+    ".scr",
+    ".scf",
+    ".sh",
+    ".url",
+    ".vb",
+    ".vbe",
+    ".vbs",
+    ".ws",
+    ".wsc",
+    ".wsh",
+    ".wsf",
 }
 
 BRIDGE_SCRIPT = r"""
@@ -118,6 +187,21 @@ BRIDGE_SCRIPT = r"""
   };
   window.LocalDock = Object.freeze({
     open: (path) => call("/__localdock/api/open", { path }),
+    openWith: (path) => call("/__localdock/api/open-with", { path }),
+    export: (path, options = {}) =>
+      call("/__localdock/api/export", { path, ...options }),
+    exportToFolder: (paths, options = {}) => {
+      const values = Array.isArray(paths) ? paths : [paths];
+      return call("/__localdock/api/export-to-folder", { paths: values, ...options });
+    },
+    pickFolder: () => call("/__localdock/api/pick-folder", {}),
+    pickFiles: (options = {}) => call("/__localdock/api/pick-files", options),
+    list: (path, options = {}) =>
+      call("/__localdock/api/list", { path, ...options }),
+    read: (path, options = {}) =>
+      call("/__localdock/api/read", { path, ...options }),
+    copy: (source, destination, options = {}) =>
+      call("/__localdock/api/copy", { source, destination, ...options }),
     reveal: (path) => call("/__localdock/api/reveal", { path }),
     trash: (path) => call("/__localdock/api/trash", { path }),
     move: (source, destination) =>
@@ -279,12 +363,15 @@ class FileWatcher:
         pending: list[dict[str, str]] = []
         due_at: float | None = None
         while not self._stop.is_set():
+            now = time.monotonic()
+            timeout = 60.0 if due_at is None else max(0.0, due_at - now)
             try:
-                batch = self._events.get(timeout=0.25)
+                batch = self._events.get(timeout=timeout)
+            except queue.Empty:
+                batch = None
+            if batch is not None:
                 pending.extend(batch["events"])
                 due_at = time.monotonic() + self.debounce
-            except queue.Empty:
-                pass
             if pending and due_at is not None and time.monotonic() >= due_at:
                 batch = pending
                 self._publish("change", batch)
@@ -440,6 +527,7 @@ class CommandJobManager:
         }
         self.allowed_root = Path(allowed_root).resolve()
         self._jobs: dict[str, dict[str, Any]] = {}
+        self._detached_processes: list[subprocess.Popen[bytes]] = []
         self._lock = threading.RLock()
         self._semaphore = threading.Semaphore(2)
 
@@ -496,6 +584,11 @@ class CommandJobManager:
         command_vector = self._build_command(executable, command_args)
 
         with self._lock:
+            self._detached_processes = [
+                process
+                for process in self._detached_processes
+                if process.poll() is None
+            ]
             active = sum(
                 1
                 for job in self._jobs.values()
@@ -516,6 +609,7 @@ class CommandJobManager:
                 "output": "",
                 "output_truncated": False,
                 "error": None,
+                "detached": bool(command.get("detached")),
                 "_cancel": threading.Event(),
                 "_process": None,
                 "_output": bytearray(),
@@ -528,6 +622,7 @@ class CommandJobManager:
                     command_vector,
                     cwd,
                     int(command["timeout"]),
+                    bool(command.get("detached")),
                     on_complete,
                 ),
                 name=f"localdock-job-{job_id[:8]}",
@@ -592,6 +687,7 @@ class CommandJobManager:
         command: list[str],
         cwd: Path,
         timeout: int,
+        detached: bool,
         on_complete: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         with self._semaphore:
@@ -612,6 +708,29 @@ class CommandJobManager:
                 else 0
             )
             try:
+                if detached:
+                    process = subprocess.Popen(
+                        command,
+                        cwd=cwd,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        shell=False,
+                        creationflags=creation_flags,
+                    )
+                    with self._lock:
+                        self._detached_processes.append(process)
+                    job["_process"] = process
+                    # Give launchers a short window to report immediate startup errors.
+                    time.sleep(0.25)
+                    exit_code = process.poll()
+                    job["exit_code"] = exit_code if exit_code is not None else 0
+                    job["status"] = (
+                        "succeeded" if exit_code in {None, 0} else "failed"
+                    )
+                    if exit_code not in {None, 0}:
+                        job["error"] = f"命令退出码：{exit_code}"
+                    return
                 process = subprocess.Popen(
                     command,
                     cwd=cwd,
@@ -725,6 +844,9 @@ class CommandJobManager:
     def close_all(self) -> None:
         with self._lock:
             jobs = list(self._jobs.values())
+            for process in self._detached_processes:
+                process.poll()
+            self._detached_processes.clear()
         for job in jobs:
             if job["status"] in {"queued", "running"}:
                 self.cancel(job["id"])
@@ -747,13 +869,16 @@ def resolve_bridge_path(
     if "\x00" in raw_path:
         raise BridgeError("文件路径无效。")
     candidate = Path(raw_path)
-    if not candidate.is_absolute():
+    relative_request = not candidate.is_absolute()
+    if relative_request:
         candidate = bridge_root / candidate
     resolved = candidate.resolve()
-    if not resolved.is_relative_to(bridge_root):
-        raise BridgeError("文件路径超出允许操作目录。")
-    if not allow_root and resolved == bridge_root:
-        raise BridgeError("不能对授权根目录本身执行此操作。")
+    if relative_request and not resolved.is_relative_to(bridge_root):
+        raise BridgeError("相对路径超出默认操作目录。请使用绝对路径访问其他位置。")
+    if not allow_root and (
+        resolved == bridge_root or resolved.parent == resolved
+    ):
+        raise BridgeError("不能对授权根目录或磁盘根目录本身执行此操作。")
     if must_exist and not resolved.exists():
         raise BridgeError("文件或目录不存在。")
     return resolved
@@ -803,8 +928,9 @@ def _backup_existing_file(config: dict[str, Any], source: Path) -> Path | None:
     )
     try:
         relative = source.relative_to(bridge_root)
-    except ValueError as exc:
-        raise BridgeError("备份路径超出允许目录。") from exc
+    except ValueError:
+        key = hashlib.sha256(str(source).encode("utf-8")).hexdigest()[:16]
+        relative = Path("external") / f"{key}-{source.name}"
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     destination = backup_root / relative.parent / f"{source.stem}.{stamp}{source.suffix}"
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -924,6 +1050,306 @@ def _make_directory(config: dict[str, Any], payload: dict[str, Any]) -> Path:
     return target
 
 
+def _launch_with_dialog(path: Path) -> None:
+    creation_flags = (
+        subprocess.CREATE_NO_WINDOW
+        if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
+        else 0
+    )
+    if os.name == "nt":
+        subprocess.Popen(
+            ["rundll32.exe", "shell32.dll,OpenAs_RunDLL", str(path)],
+            creationflags=creation_flags,
+        )
+        return
+
+    root = None
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        executable = filedialog.askopenfilename(parent=root, title="选择打开软件")
+    finally:
+        if root is not None:
+            root.destroy()
+    if not executable:
+        raise BridgeError("未选择打开软件。")
+    subprocess.Popen([executable, str(path)])
+
+
+def perform_open_with(config: dict[str, Any], requested: str) -> Path:
+    resolved = resolve_bridge_path(config, requested)
+    if not resolved.is_file():
+        raise BridgeError("只能使用外部软件打开文件。")
+    if resolved.suffix.casefold() in BLOCKED_OPEN_WITH_EXTENSIONS:
+        raise BridgeError("不允许通过页面启动可执行文件或脚本。")
+    configured = str(config.get("external_app_path") or "").strip()
+    if configured:
+        executable = Path(configured).resolve()
+        if not executable.is_file():
+            raise BridgeError("配置的外部软件不存在。")
+        creation_flags = (
+            subprocess.CREATE_NO_WINDOW
+            if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
+            else 0
+        )
+        subprocess.Popen(
+            [str(executable), str(resolved)],
+            cwd=str(executable.parent),
+            creationflags=creation_flags,
+        )
+    else:
+        _launch_with_dialog(resolved)
+    return resolved
+
+
+def _choose_export_target(source: Path) -> Path | None:
+    root = None
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.asksaveasfilename(
+            parent=root,
+            title="导出到本地",
+            initialdir=str(source.parent),
+            initialfile=source.name,
+            defaultextension=source.suffix,
+            confirmoverwrite=True,
+        )
+        return Path(selected).resolve() if selected else None
+    except Exception as exc:
+        raise BridgeError(f"无法打开导出对话框：{exc}") from exc
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+
+def _export_path(config: dict[str, Any], requested: str) -> Path | None:
+    source = resolve_bridge_path(config, requested)
+    if not source.is_file():
+        raise BridgeError("只能导出文件，不能导出整个目录。")
+    selected = _choose_export_target(source)
+    if selected is None:
+        return None
+    if selected == source:
+        raise BridgeError("不能覆盖源文件，请选择另一个导出位置。")
+    if not selected.parent.is_dir():
+        raise BridgeError("导出目录不存在。")
+    shutil.copy2(source, selected)
+    return selected
+
+
+def _choose_export_folder(initial_dir: Path) -> Path | None:
+    root = None
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askdirectory(
+            parent=root,
+            title="选择导出文件夹",
+            initialdir=str(initial_dir),
+            mustexist=True,
+        )
+        return Path(selected).resolve() if selected else None
+    except Exception as exc:
+        raise BridgeError(f"无法打开文件夹选择器：{exc}") from exc
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+
+def _copy_export_without_overwrite(source: Path, folder: Path) -> Path:
+    index = 0
+    while True:
+        name = source.name if index == 0 else f"{source.stem} ({index}){source.suffix}"
+        target = folder / name
+        try:
+            with source.open("rb") as reader, target.open("xb") as writer:
+                shutil.copyfileobj(reader, writer, 1024 * 1024)
+            try:
+                shutil.copystat(source, target)
+            except OSError:
+                pass
+            return target
+        except FileExistsError:
+            index += 1
+
+
+def _export_to_folder(
+    config: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    raw_paths = payload.get("paths", payload.get("path"))
+    if isinstance(raw_paths, str):
+        raw_paths = [raw_paths]
+    if (
+        not isinstance(raw_paths, list)
+        or not raw_paths
+        or len(raw_paths) > MAX_EXPORT_FILES
+        or not all(isinstance(value, str) for value in raw_paths)
+    ):
+        raise BridgeError(f"一次可导出 1 到 {MAX_EXPORT_FILES} 个文件。")
+
+    sources = []
+    for value in raw_paths:
+        source = resolve_bridge_path(config, value)
+        if not source.is_file():
+            raise BridgeError(f"只能导出文件：{source}")
+        if source not in sources:
+            sources.append(source)
+
+    selected = _choose_export_folder(sources[0].parent)
+    if selected is None:
+        return {"paths": [], "failures": [], "canceled": True}
+    exported: list[str] = []
+    failures: list[str] = []
+    for source in sources:
+        try:
+            target = _copy_export_without_overwrite(source, selected)
+            exported.append(str(target))
+        except OSError as exc:
+            failures.append(f"{source.name}: {exc}")
+    return {"paths": exported, "failures": failures, "canceled": False}
+
+
+def _pick_system_path(kind: str) -> Path | list[Path] | None:
+    root = None
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        if kind == "folder":
+            selected = filedialog.askdirectory(
+                parent=root,
+                title="选择文件夹",
+                mustexist=True,
+            )
+            return Path(selected).resolve() if selected else None
+        selected = filedialog.askopenfilenames(
+            parent=root,
+            title="选择文件",
+        )
+        return [Path(path).resolve() for path in selected] if selected else None
+    except Exception as exc:
+        raise BridgeError(f"无法打开系统选择器：{exc}") from exc
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+
+def _list_path(config: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    target = resolve_bridge_path(
+        config,
+        str(payload.get("path", "")),
+        allow_root=True,
+    )
+    include_hidden = payload.get("include_hidden") is True
+    try:
+        limit = max(1, min(int(payload.get("limit", 1000)), 5000))
+    except (TypeError, ValueError) as exc:
+        raise BridgeError("目录条目限制无效。") from exc
+
+    if target.is_file():
+        candidates = [target]
+    elif target.is_dir():
+        try:
+            with os.scandir(target) as iterator:
+                candidates = [
+                    Path(entry.path)
+                    for entry in iterator
+                    if include_hidden or not entry.name.startswith(".")
+                ]
+        except OSError as exc:
+            raise BridgeError(f"无法读取目录：{exc}") from exc
+    else:
+        raise BridgeError("路径不存在。")
+
+    candidates.sort(key=lambda path: (not path.is_dir(), path.name.casefold()))
+    entries = []
+    for path in candidates[:limit]:
+        try:
+            info = path.stat(follow_symlinks=False)
+            entries.append(
+                {
+                    "name": path.name,
+                    "path": str(path),
+                    "type": "directory" if path.is_dir() else "file",
+                    "size": info.st_size,
+                    "mtime_ns": info.st_mtime_ns,
+                    "symlink": path.is_symlink(),
+                }
+            )
+        except OSError:
+            continue
+    return {"path": str(target), "entries": entries, "truncated": len(candidates) > limit}
+
+
+def _read_path(config: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    target = resolve_bridge_path(config, str(payload.get("path", "")))
+    if not target.is_file():
+        raise BridgeError("只能读取文件。")
+    size = target.stat().st_size
+    if size > MAX_WRITE_BODY:
+        raise BridgeError("读取文件不能超过 16 MB。")
+    data = target.read_bytes()
+    encoding = str(payload.get("encoding", "utf-8")).casefold()
+    if encoding == "base64":
+        content = base64.b64encode(data).decode("ascii")
+    elif encoding == "utf-8":
+        content = data.decode("utf-8", errors="replace")
+    else:
+        raise BridgeError("读取编码仅支持 utf-8 或 base64。")
+    return {
+        "path": str(target),
+        "content": content,
+        "encoding": encoding,
+        "bytes": size,
+        "mtime_ns": target.stat().st_mtime_ns,
+    }
+
+
+def _copy_path(config: dict[str, Any], payload: dict[str, Any]) -> Path:
+    ensure_write_enabled(config)
+    source = resolve_bridge_path(config, str(payload.get("source", "")))
+    destination = resolve_bridge_path(
+        config,
+        str(payload.get("destination", "")),
+        must_exist=False,
+    )
+    if not source.is_file():
+        raise BridgeError("当前复制接口只支持文件。")
+    if destination.exists() and destination.is_dir():
+        destination = destination / source.name
+    if destination.exists():
+        raise BridgeError("目标文件已存在，复制不会覆盖。")
+    if not destination.parent.is_dir():
+        raise BridgeError("目标目录不存在。")
+    shutil.copy2(source, destination)
+    return destination
+
+
 def perform_bridge_action(
     config: dict[str, Any], action: str, requested: str
 ) -> Path:
@@ -936,7 +1362,10 @@ def perform_bridge_action(
         startfile = getattr(os, "startfile", None)
         if startfile is None:
             raise BridgeError("当前系统不支持调用默认软件。")
-        startfile(str(resolved))
+        try:
+            startfile(str(resolved))
+        except OSError:
+            _launch_with_dialog(resolved)
         return resolved
 
     if resolved.is_file():
@@ -1142,9 +1571,24 @@ class StaticSiteServer(ThreadingHTTPServer):
                 )
                 bridge_enabled = bool(self.site_config.get("bridge_enabled"))
                 write_enabled = bool(self.site_config.get("write_enabled"))
-                features = ["open", "reveal"] if bridge_enabled else []
+                features = (
+                    [
+                        "open",
+                        "openWith",
+                        "export",
+                        "exportToFolder",
+                        "list",
+                        "read",
+                        "copy",
+                        "pickFolder",
+                        "pickFiles",
+                        "reveal",
+                    ]
+                    if bridge_enabled
+                    else []
+                )
                 if write_enabled:
-                    features.extend(["trash", "move", "write", "mkdir"])
+                    features.extend(["copy", "trash", "move", "write", "mkdir"])
                 watch_enabled = bool(self.site_config.get("watch_enabled"))
                 if watch_enabled:
                     features.append("watch")
@@ -1185,7 +1629,7 @@ class StaticSiteServer(ThreadingHTTPServer):
                             self.site_config.get("auto_reload")
                         ),
                         "interval": int(
-                            self.site_config.get("watch_interval", 5)
+                            self.site_config.get("watch_interval", 10)
                         ),
                         "root": str(watch_root) if watch_enabled else None,
                         "site_prefix": site_prefix,
@@ -1288,6 +1732,38 @@ class StaticRequestHandler(BaseHTTPRequestHandler):
 
         if path in OPEN_PATHS and method == "POST":
             self._handle_bridge("open")
+            return True
+
+        if path in OPEN_WITH_PATHS and method == "POST":
+            self._handle_bridge("openWith")
+            return True
+
+        if path in EXPORT_PATHS and method == "POST":
+            self._handle_bridge("export")
+            return True
+
+        if path in EXPORT_FOLDER_PATHS and method == "POST":
+            self._handle_bridge("exportToFolder")
+            return True
+
+        if path in LIST_PATHS and method == "POST":
+            self._handle_bridge("list")
+            return True
+
+        if path in READ_PATHS and method == "POST":
+            self._handle_bridge("read")
+            return True
+
+        if path in COPY_PATHS and method == "POST":
+            self._handle_bridge("copy")
+            return True
+
+        if path in PICK_FOLDER_PATHS and method == "POST":
+            self._handle_bridge("pickFolder")
+            return True
+
+        if path in PICK_FILES_PATHS and method == "POST":
+            self._handle_bridge("pickFiles")
             return True
 
         if path in REVEAL_PATHS and method == "POST":
@@ -1541,7 +2017,7 @@ class StaticRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if action in {"trash", "move", "write", "mkdir"} and not self.config.get(
+        if action in {"copy", "trash", "move", "write", "mkdir"} and not self.config.get(
             "write_enabled"
         ):
             self._send_json(
@@ -1595,6 +2071,38 @@ class StaticRequestHandler(BaseHTTPRequestHandler):
                     str(payload.get("path", "")),
                 )
                 result = {"path": str(resolved)}
+            elif action == "openWith":
+                resolved = perform_open_with(
+                    self.config,
+                    str(payload.get("path", "")),
+                )
+                result = {"path": str(resolved)}
+            elif action == "export":
+                exported = _export_path(
+                    self.config,
+                    str(payload.get("path", "")),
+                )
+                if exported is None:
+                    result = {"path": "", "canceled": True}
+                else:
+                    result = {"path": str(exported), "canceled": False}
+                    if payload.get("open_with") is True and exported.is_file():
+                        _launch_with_dialog(exported)
+            elif action == "exportToFolder":
+                result = _export_to_folder(self.config, payload)
+            elif action == "list":
+                result = _list_path(self.config, payload)
+            elif action == "read":
+                result = _read_path(self.config, payload)
+            elif action == "copy":
+                resolved = _copy_path(self.config, payload)
+                result = {"path": str(resolved)}
+            elif action == "pickFolder":
+                selected = _pick_system_path("folder")
+                result = {"path": str(selected) if selected else "", "canceled": not selected}
+            elif action == "pickFiles":
+                selected = _pick_system_path("files")
+                result = {"paths": [str(path) for path in selected], "canceled": not selected}
             elif action == "trash":
                 resolved = _trash_path(self.config, str(payload.get("path", "")))
                 result = {
@@ -1637,19 +2145,28 @@ class StaticRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_file(self, head_only: bool) -> None:
         root = Path(self.config["root_path"]).resolve()
-        request_path = unquote(urlsplit(self.path).path)
+        parsed_request = urlsplit(self.path)
+        request_path = unquote(parsed_request.path)
+        request_query = parsed_request.query
+
+        def entry_redirect(base: str = "") -> None:
+            location = self._entry_url(base)
+            if request_query:
+                location += f"?{request_query}"
+            self._redirect(location)
+
         if "\x00" in request_path:
             self._send_error_page(HTTPStatus.BAD_REQUEST, "Invalid path")
             return
 
         relative_text = request_path.lstrip("/").replace("\\", "/")
         if not relative_text:
-            self._redirect(self._entry_url())
+            entry_redirect()
             return
 
         relative = PurePosixPath(relative_text)
         if relative_text.endswith("/"):
-            self._redirect(self._entry_url(relative_text))
+            entry_redirect(relative_text)
             return
 
         candidate = (root / Path(*relative.parts)).resolve()
@@ -1660,7 +2177,7 @@ class StaticRequestHandler(BaseHTTPRequestHandler):
             return
 
         if candidate.is_dir():
-            self._redirect(self._entry_url(relative_text))
+            entry_redirect(relative_text)
             return
         if not candidate.is_file():
             self._send_error_page(HTTPStatus.NOT_FOUND, "File not found")
@@ -1677,11 +2194,15 @@ class StaticRequestHandler(BaseHTTPRequestHandler):
             if b"/__localdock/bridge.js" not in body:
                 tag = b'<script src="/__localdock/bridge.js"></script>'
                 body_lower = body.lower()
-                closing = body_lower.rfind(b"</body>")
-                if closing >= 0:
-                    body = body[:closing] + tag + body[closing:]
+                closing_head = body_lower.find(b"</head>")
+                if closing_head >= 0:
+                    body = body[:closing_head] + tag + body[closing_head:]
                 else:
-                    body += tag
+                    closing_body = body_lower.rfind(b"</body>")
+                    if closing_body >= 0:
+                        body = body[:closing_body] + tag + body[closing_body:]
+                    else:
+                        body += tag
             self._send_bytes(
                 HTTPStatus.OK,
                 body,
@@ -1797,7 +2318,7 @@ def run_worker(encoded_config: str) -> None:
                 or config.get("root_path")
             )
         ).resolve()
-        interval = int(config.get("watch_interval", 5))
+        interval = int(config.get("watch_interval", 10))
         server.watcher = FileWatcher(
             watch_root,
             interval=interval,

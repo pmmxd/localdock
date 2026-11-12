@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -43,24 +44,29 @@ class Database:
                     name TEXT NOT NULL,
                     root_path TEXT NOT NULL,
                     entry_file TEXT NOT NULL DEFAULT 'index.html',
+                    service_type TEXT NOT NULL DEFAULT 'static'
+                        CHECK (service_type IN ('static', 'node')),
+                    backend_json TEXT NOT NULL DEFAULT '{}',
                     port INTEGER NOT NULL UNIQUE,
                     auto_open INTEGER NOT NULL DEFAULT 1
                         CHECK (auto_open IN (0, 1)),
-                    bridge_enabled INTEGER NOT NULL DEFAULT 0
+                    bridge_enabled INTEGER NOT NULL DEFAULT 1
                         CHECK (bridge_enabled IN (0, 1)),
                     bridge_root TEXT,
-                    write_enabled INTEGER NOT NULL DEFAULT 0
+                    external_app_path TEXT,
+                    write_enabled INTEGER NOT NULL DEFAULT 1
                         CHECK (write_enabled IN (0, 1)),
-                    watch_enabled INTEGER NOT NULL DEFAULT 0
+                    watch_enabled INTEGER NOT NULL DEFAULT 1
                         CHECK (watch_enabled IN (0, 1)),
                     watch_root TEXT,
-                    watch_interval INTEGER NOT NULL DEFAULT 5,
-                    auto_reload INTEGER NOT NULL DEFAULT 0
+                    watch_interval INTEGER NOT NULL DEFAULT 10,
+                    auto_reload INTEGER NOT NULL DEFAULT 1
                         CHECK (auto_reload IN (0, 1)),
                     command_enabled INTEGER NOT NULL DEFAULT 0
                         CHECK (command_enabled IN (0, 1)),
                     commands_json TEXT NOT NULL DEFAULT '[]',
                     auto_command_id TEXT,
+                    group_name TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     last_started_at TEXT
@@ -82,6 +88,10 @@ class Database:
             if "bridge_root" not in columns:
                 connection.execute(
                     "ALTER TABLE services ADD COLUMN bridge_root TEXT"
+                )
+            if "external_app_path" not in columns:
+                connection.execute(
+                    "ALTER TABLE services ADD COLUMN external_app_path TEXT"
                 )
             if "write_enabled" not in columns:
                 connection.execute(
@@ -121,6 +131,32 @@ class Database:
                 connection.execute(
                     "ALTER TABLE services ADD COLUMN auto_command_id TEXT"
                 )
+            if "service_type" not in columns:
+                connection.execute(
+                    "ALTER TABLE services ADD COLUMN "
+                    "service_type TEXT NOT NULL DEFAULT 'static'"
+                )
+            if "backend_json" not in columns:
+                connection.execute(
+                    "ALTER TABLE services ADD COLUMN "
+                    "backend_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            if "group_name" not in columns:
+                connection.execute(
+                    "ALTER TABLE services ADD COLUMN "
+                    "group_name TEXT NOT NULL DEFAULT ''"
+                )
+            capability_version = int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            )
+            if capability_version < 1:
+                connection.execute(
+                    "UPDATE services SET bridge_enabled = 1, write_enabled = 1, "
+                    "watch_enabled = 1, auto_reload = 1, "
+                    "watch_interval = CASE WHEN watch_interval < 10 THEN 10 "
+                    "ELSE watch_interval END"
+                )
+                connection.execute("PRAGMA user_version = 1")
 
     @staticmethod
     def _service_from_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -133,6 +169,11 @@ class Database:
         service["watch_enabled"] = bool(service.get("watch_enabled", False))
         service["auto_reload"] = bool(service.get("auto_reload", False))
         service["command_enabled"] = bool(service.get("command_enabled", False))
+        try:
+            backend = json.loads(service.get("backend_json") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            backend = {}
+        service["backend"] = backend if isinstance(backend, dict) else {}
         return service
 
     def list_services(self) -> list[dict[str, Any]]:
@@ -163,22 +204,26 @@ class Database:
             connection.execute(
                 """
                 INSERT INTO services (
-                    id, name, root_path, entry_file, port, auto_open,
-                    bridge_enabled, bridge_root, write_enabled,
+                    id, name, root_path, entry_file, service_type, backend_json,
+                    port, auto_open,
+                    bridge_enabled, bridge_root, external_app_path, write_enabled,
                     watch_enabled, watch_root, watch_interval, auto_reload,
                     command_enabled, commands_json, auto_command_id,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     service_id,
                     values["name"],
                     values["root_path"],
                     values["entry_file"],
+                    values.get("service_type", "static"),
+                    values.get("backend_json", "{}"),
                     values["port"],
                     int(values["auto_open"]),
                     int(values["bridge_enabled"]),
                     values["bridge_root"],
+                    values.get("external_app_path"),
                     int(values["write_enabled"]),
                     int(values["watch_enabled"]),
                     values["watch_root"],
@@ -203,8 +248,10 @@ class Database:
             cursor = connection.execute(
                 """
                 UPDATE services
-                SET name = ?, root_path = ?, entry_file = ?, port = ?,
+                SET name = ?, root_path = ?, entry_file = ?, service_type = ?,
+                    backend_json = ?, port = ?,
                     auto_open = ?, bridge_enabled = ?, bridge_root = ?,
+                    external_app_path = ?,
                     write_enabled = ?, watch_enabled = ?, watch_root = ?,
                     watch_interval = ?, auto_reload = ?, command_enabled = ?,
                     commands_json = ?, auto_command_id = ?, updated_at = ?
@@ -214,10 +261,13 @@ class Database:
                     values["name"],
                     values["root_path"],
                     values["entry_file"],
+                    values.get("service_type", "static"),
+                    values.get("backend_json", "{}"),
                     values["port"],
                     int(values["auto_open"]),
                     int(values["bridge_enabled"]),
                     values["bridge_root"],
+                    values.get("external_app_path"),
                     int(values["write_enabled"]),
                     int(values["watch_enabled"]),
                     values["watch_root"],
@@ -247,6 +297,27 @@ class Database:
                 "UPDATE services SET last_started_at = ? WHERE id = ?",
                 (utc_now(), service_id),
             )
+
+    def set_service_group(self, service_ids: list[str], group_name: str) -> int:
+        if not service_ids:
+            return 0
+        placeholders = ",".join("?" for _ in service_ids)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE services SET group_name = ?, updated_at = ? "
+                f"WHERE id IN ({placeholders})",
+                (group_name, utc_now(), *service_ids),
+            )
+        return cursor.rowcount
+
+    def rename_service_group(self, old_name: str, new_name: str) -> int:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE services SET group_name = ?, updated_at = ? "
+                "WHERE group_name = ? COLLATE NOCASE",
+                (new_name, utc_now(), old_name),
+            )
+        return cursor.rowcount
 
     def backup_to(self, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)

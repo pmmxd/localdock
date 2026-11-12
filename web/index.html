@@ -7,7 +7,7 @@
     <meta name="color-scheme" content="light">
     <title>LocalDock · 本地站点管家</title>
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/assets/styles.css?v=0.6.1">
+    <link rel="stylesheet" href="/assets/styles.css?v=0.8.3">
   </head>
   <body>
     <svg class="icon-sprite" aria-hidden="true">
@@ -55,6 +55,11 @@
       </symbol>
       <symbol id="icon-folder" viewBox="0 0 24 24">
         <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path>
+      </symbol>
+      <symbol id="icon-folder-plus" viewBox="0 0 24 24">
+        <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path>
+        <path d="M12 11v6"></path>
+        <path d="M9 14h6"></path>
       </symbol>
       <symbol id="icon-search" viewBox="0 0 24 24">
         <circle cx="11" cy="11" r="8"></circle>
@@ -194,14 +199,38 @@
                 </div>
               </div>
             </div>
+            <div class="group-batch" id="group-batch" hidden>
+              <strong id="selection-count">已选 0 个服务</strong>
+              <input id="group-name" type="text" maxlength="80" placeholder="留空自动命名，或输入自定义名称">
+              <button class="button button-primary group-batch-button" id="create-group" type="button" disabled>
+                创建分组
+              </button>
+              <select class="group-target" id="group-target" aria-label="选择已有分组">
+                <option value="">选择已有分组</option>
+              </select>
+              <button class="button button-secondary group-batch-button" id="add-to-group" type="button" disabled>
+                添加到分组
+              </button>
+              <button class="button button-secondary group-batch-button" id="remove-group" type="button" disabled>
+                移出分组
+              </button>
+              <button class="button button-quiet group-batch-button" id="clear-selection" type="button" disabled>
+                清空选择
+              </button>
+            </div>
           </div>
 
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th class="col-status">状态</th>
-                  <th>站点</th>
+                  <th class="col-status">
+                    <label class="select-all-head">
+                      <input id="select-all-services" type="checkbox" aria-label="全选当前服务">
+                      <span>状态</span>
+                    </label>
+                  </th>
+                  <th>服务</th>
                   <th class="col-address">访问地址</th>
                   <th class="col-port">端口</th>
                   <th class="col-actions"><span class="sr-only">操作</span></th>
@@ -214,7 +243,7 @@
                 <svg class="icon"><use href="#icon-server"></use></svg>
               </div>
               <strong id="empty-title">还没有站点</strong>
-              <p id="empty-copy">添加一个 HTML 项目目录开始使用。</p>
+              <p id="empty-copy">添加一个静态站点或后端进程开始使用。</p>
               <button class="button button-primary" id="empty-add" type="button">
                 <svg class="icon"><use href="#icon-plus"></use></svg>
                 <span>新增站点</span>
@@ -246,6 +275,14 @@
             <input id="service-name" name="name" type="text" maxlength="80" placeholder="例如：产品原型" required>
           </label>
           <label class="field">
+            <span>服务类型</span>
+            <select id="service-type" name="service_type">
+              <option value="static">静态 HTML 站点</option>
+              <option value="node">后端服务（Node / Python）</option>
+            </select>
+            <small class="field-hint">由 LocalDock 直接管理运行程序、健康状态和完整进程树</small>
+          </label>
+          <label class="field">
             <span>项目目录</span>
             <div class="input-with-action">
               <input id="service-root" name="root_path" type="text" placeholder="D:\projects\demo" required spellcheck="false">
@@ -254,8 +291,62 @@
               </button>
             </div>
           </label>
-          <div class="form-grid">
+          <div id="node-options" hidden>
             <label class="field">
+              <span>运行程序</span>
+              <div class="input-with-action">
+                <input id="node-runtime-path" type="text" placeholder="Node: runtime\node.exe；Python: .venv\Scripts\python.exe" spellcheck="false">
+                <button class="field-action" id="browse-node-runtime" type="button" title="选择后端运行程序" aria-label="选择后端运行程序">
+                  <svg class="icon"><use href="#icon-folder"></use></svg>
+                </button>
+              </div>
+            </label>
+            <label class="field">
+              <span>启动参数</span>
+              <textarea id="node-args" class="command-editor node-args-editor" spellcheck="false" placeholder="每行一个参数&#10;Node 示例：--enable-source-maps / dist\server\index.js&#10;Python 示例：-m / uvicorn / app.main:app / --port / {port}"></textarea>
+              <small class="field-hint">支持 {port} 占位符；LocalDock 同时注入 PORT 环境变量</small>
+            </label>
+            <div class="form-grid">
+              <label class="field">
+                <span>工作目录</span>
+                <input id="node-cwd" type="text" placeholder="留空使用项目根目录" spellcheck="false">
+              </label>
+              <label class="field">
+                <span>环境变量文件</span>
+                <input id="node-env-file" type="text" placeholder="例如：.env" spellcheck="false">
+              </label>
+            </div>
+            <div class="form-grid">
+              <label class="field">
+                <span>健康检查路径</span>
+                <input id="node-health-path" type="text" placeholder="/api/health 或 /api/v1/health" spellcheck="false">
+              </label>
+              <label class="field">
+                <span>启动超时（秒）</span>
+                <input id="node-startup-timeout" type="number" min="1" max="300" value="30">
+              </label>
+            </div>
+            <div class="form-grid">
+              <label class="field">
+                <span>停止超时（秒）</span>
+                <input id="node-shutdown-timeout" type="number" min="1" max="60" value="5">
+              </label>
+              <label class="field">
+                <span>重启间隔（秒）</span>
+                <input id="node-restart-delay" type="number" min="1" max="60" value="2">
+              </label>
+            </div>
+            <label class="switch-row">
+              <span>
+                <strong>异常退出后自动重启</strong>
+                <small>最多连续重试 5 次，手动停止后不会自动启动</small>
+              </span>
+              <input id="node-auto-restart" type="checkbox">
+              <span class="switch-control" aria-hidden="true"></span>
+            </label>
+          </div>
+          <div class="form-grid">
+            <label class="field static-only">
               <span>入口文件</span>
               <input id="service-entry" name="entry_file" type="text" placeholder="index.html" value="index.html" required spellcheck="false">
             </label>
@@ -271,7 +362,7 @@
               <small class="field-hint" id="port-hint">默认从 7000 起分配，并避开常见服务端口</small>
             </label>
           </div>
-          <label class="switch-row">
+          <label class="switch-row static-only">
             <span>
               <strong>启动时打开浏览器</strong>
               <small>手动启动站点时自动进入首页</small>
@@ -282,12 +373,12 @@
           <label class="switch-row">
             <span>
               <strong>启用本地文件操作</strong>
-              <small>允许页面调用默认软件打开文件或定位资源</small>
+              <small>允许自选软件打开文件，并支持单个或批量导出到本地文件夹</small>
             </span>
-            <input id="service-bridge-enabled" name="bridge_enabled" type="checkbox">
+            <input id="service-bridge-enabled" name="bridge_enabled" type="checkbox" checked>
             <span class="switch-control" aria-hidden="true"></span>
           </label>
-          <label class="field bridge-root-field" id="bridge-root-field" hidden>
+          <label class="field bridge-root-field static-only" id="bridge-root-field" hidden>
             <span>允许操作目录</span>
             <div class="input-with-action">
               <input id="service-bridge-root" name="bridge_root" type="text" placeholder="选择页面允许访问的文件目录" spellcheck="false">
@@ -295,57 +386,74 @@
                 <svg class="icon"><use href="#icon-folder"></use></svg>
               </button>
             </div>
-            <small class="field-hint">页面只能访问此目录中的文件，留空时仅允许站点目录</small>
+            <small class="field-hint">相对路径使用此目录；绝对路径可直接访问其他系统位置</small>
           </label>
-          <label class="switch-row" id="write-switch-row" hidden>
+          <label class="field bridge-root-field static-only" id="external-app-field" hidden>
+            <span>默认外部软件（可选）</span>
+            <div class="input-with-action">
+              <input id="service-external-app" name="external_app_path" type="text" placeholder="留空时弹出系统打开方式" spellcheck="false">
+              <button class="field-action" id="browse-external-app" type="button" title="选择外部软件" aria-label="选择外部软件">
+                <svg class="icon"><use href="#icon-folder"></use></svg>
+              </button>
+            </div>
+            <small class="field-hint">配置后 LocalDock.openWith() 直接启动该软件，不再认证或重复选择</small>
+          </label>
+          <label class="switch-row static-only" id="write-switch-row" hidden>
             <span>
               <strong>允许删除、移动和写入</strong>
               <small>删除进入系统回收站，修改文件前会保留备份</small>
             </span>
-            <input id="service-write-enabled" name="write_enabled" type="checkbox">
+            <input id="service-write-enabled" name="write_enabled" type="checkbox" checked>
             <span class="switch-control" aria-hidden="true"></span>
           </label>
-          <label class="switch-row" id="watch-switch-row">
+          <label class="switch-row static-only" id="watch-switch-row">
             <span>
               <strong>监控文件变化</strong>
-              <small>Windows 下使用系统变更通知，并对事件合并去抖</small>
+              <small>自动使用授权目录或站点目录，系统通知空闲时几乎不占用 CPU</small>
             </span>
-            <input id="service-watch-enabled" name="watch_enabled" type="checkbox">
+            <input id="service-watch-enabled" name="watch_enabled" type="checkbox" checked>
             <span class="switch-control" aria-hidden="true"></span>
           </label>
-          <div id="watch-options" hidden>
-            <label class="field">
-              <span>监控目录</span>
-              <div class="input-with-action">
-                <input id="service-watch-root" name="watch_root" type="text" placeholder="留空时使用文件操作目录或站点目录" spellcheck="false">
-                <button class="field-action" id="browse-watch-root" type="button" title="选择监控目录" aria-label="选择监控目录">
-                  <svg class="icon"><use href="#icon-folder"></use></svg>
-                </button>
-              </div>
-              <small class="field-hint">只监听文件变化，不会定期读取文件内容</small>
-            </label>
-            <div class="form-grid">
-              <label class="field">
-                <span>低速轮询间隔</span>
-                <input id="service-watch-interval" name="watch_interval" type="number" min="3" max="60" value="5">
-                <small class="field-hint">Windows 原生通知不可用时使用，单位秒</small>
-              </label>
-              <label class="switch-row watch-auto-reload">
-                <span>
-                  <strong>页面自动刷新</strong>
-                  <small>仅站点自身文件变化时自动重载</small>
-                </span>
-                <input id="service-auto-reload" name="auto_reload" type="checkbox">
-                <span class="switch-control" aria-hidden="true"></span>
-              </label>
+          <div id="watch-options" class="static-only" hidden>
+            <div class="watch-auto-card">
+              <strong>自动监控设置</strong>
+              <span>优先监控本地文件操作授权目录；未启用文件操作时监控站点目录。Windows 使用系统变更通知，不扫描文件内容。</span>
             </div>
-            <label class="field">
-              <span>变化后自动执行命令 ID</span>
-              <input id="service-auto-command" name="auto_command_id" type="text" placeholder="可选，例如 rebuild-index" spellcheck="false">
-              <small class="field-hint">必须与下方“允许的命令配置”中的 id 一致</small>
+            <label class="switch-row watch-auto-reload">
+              <span>
+                <strong>页面自动刷新</strong>
+                <small>仅站点自身文件变化时自动重载，默认启用</small>
+              </span>
+              <input id="service-auto-reload" name="auto_reload" type="checkbox">
+              <span class="switch-control" aria-hidden="true"></span>
             </label>
+            <details class="advanced-options">
+              <summary>高级监控设置</summary>
+              <label class="field">
+                <span>自定义监控目录</span>
+                <div class="input-with-action">
+                  <input id="service-watch-root" name="watch_root" type="text" placeholder="留空即自动选择授权目录或站点目录" spellcheck="false">
+                  <button class="field-action" id="browse-watch-root" type="button" title="选择监控目录" aria-label="选择监控目录">
+                    <svg class="icon"><use href="#icon-folder"></use></svg>
+                  </button>
+                </div>
+                <small class="field-hint">只有需要监控其他目录时才填写</small>
+              </label>
+              <div class="form-grid">
+                <label class="field">
+                  <span>回退轮询间隔</span>
+                  <input id="service-watch-interval" name="watch_interval" type="number" min="3" max="60" value="10">
+                  <small class="field-hint">仅系统通知不可用时使用，默认 10 秒</small>
+                </label>
+                <label class="field">
+                  <span>变化后执行命令 ID</span>
+                  <input id="service-auto-command" name="auto_command_id" type="text" placeholder="可选" spellcheck="false">
+                  <small class="field-hint">须与已登记命令 ID 一致</small>
+                </label>
+              </div>
+            </details>
           </div>
-          <label class="switch-row" id="command-switch-row">
+          <label class="switch-row static-only" id="command-switch-row">
             <span>
               <strong>运行本地命令</strong>
               <small>只允许调用下方预先登记的命令，默认关闭</small>
@@ -353,10 +461,10 @@
             <input id="service-command-enabled" name="command_enabled" type="checkbox">
             <span class="switch-control" aria-hidden="true"></span>
           </label>
-          <label class="field" id="command-options" hidden>
+          <label class="field static-only" id="command-options" hidden>
             <span>允许的命令配置（JSON）</span>
-            <textarea id="service-commands" name="commands_json" class="command-editor" spellcheck="false" placeholder='[{"id":"ffmpeg-convert","label":"视频转码","executable":"ffmpeg","args":["-i","{input}","-y","{output}"],"timeout":3600}]'></textarea>
-            <small class="field-hint">参数使用 {name} 占位符；命令通过 shell=False 直接启动</small>
+            <textarea id="service-commands" name="commands_json" class="command-editor" spellcheck="false" placeholder='[{"id":"ffmpeg-convert","label":"视频转码","executable":"ffmpeg","args":["-i","{input}","-y","{output}"],"timeout":3600,"detached":false}]'></textarea>
+            <small class="field-hint">参数使用 {name} 占位符；外部 GUI 软件设置 "detached": true 后启动即返回，不等待超时</small>
           </label>
           <div class="form-error" id="form-error" role="alert" hidden></div>
         </div>
@@ -395,6 +503,57 @@
       </footer>
     </dialog>
 
+    <dialog class="modal" id="add-group-dialog" closedby="none">
+      <form id="add-group-form">
+        <header class="modal-header">
+          <div>
+            <div class="eyebrow">ADD TO GROUP</div>
+            <h2>添加到分组</h2>
+          </div>
+          <button class="icon-button modal-close" type="button" data-close-dialog title="关闭" aria-label="关闭">
+            <svg class="icon"><use href="#icon-x"></use></svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <p class="dialog-service-name" id="add-group-service-name"></p>
+          <label class="field">
+            <span>选择已有分组</span>
+            <select id="add-group-target" required></select>
+          </label>
+          <p class="form-error" id="add-group-error" hidden></p>
+        </div>
+        <footer class="modal-footer">
+          <button class="button button-quiet" type="button" data-close-dialog>取消</button>
+          <button class="button button-primary" id="add-group-save" type="submit">添加</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="rename-group-dialog" closedby="none">
+      <form id="rename-group-form">
+        <header class="modal-header">
+          <div>
+            <div class="eyebrow">RENAME GROUP</div>
+            <h2>重命名分组</h2>
+          </div>
+          <button class="icon-button modal-close" type="button" data-close-dialog title="关闭" aria-label="关闭">
+            <svg class="icon"><use href="#icon-x"></use></svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <label class="field">
+            <span>分组名称</span>
+            <input id="rename-group-name" type="text" maxlength="80" required autocomplete="off">
+          </label>
+          <p class="form-error" id="rename-group-error" hidden></p>
+        </div>
+        <footer class="modal-footer">
+          <button class="button button-quiet" type="button" data-close-dialog>取消</button>
+          <button class="button button-primary" id="save-group-name" type="submit">保存</button>
+        </footer>
+      </form>
+    </dialog>
+
     <dialog class="modal modal-confirm" id="confirm-dialog">
       <div class="confirm-body">
         <div class="confirm-icon" id="confirm-icon">
@@ -418,6 +577,6 @@
       <p>后台服务已经全部停止。</p>
     </div>
 
-    <script src="/assets/app.js?v=0.6.1"></script>
+    <script src="/assets/app.js?v=0.8.3"></script>
   </body>
 </html>

@@ -26,7 +26,7 @@ python -m PyInstaller `
 
 $portableDir = Join-Path $PSScriptRoot "dist\LocalDock"
 Copy-Item -LiteralPath README.md -Destination $portableDir -Force
-Copy-Item -LiteralPath README.zh-CN.md -Destination $portableDir -Force
+Copy-Item -LiteralPath README.en.md -Destination $portableDir -Force
 
 $zipPath = Join-Path $PSScriptRoot "dist\LocalDock-portable.zip"
 if (Test-Path -LiteralPath $zipPath) {
